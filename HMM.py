@@ -108,11 +108,15 @@ class HMM:
             self.initial_state[i] = float(prob)
 
 def viterbi(s,hmm):
+    log_transition = np.log(hmm.transition_matrix)
     num_states = hmm.transition_matrix.shape[0]
     table = np.zeros((len(s),num_states))
+    table_log = np.zeros((len(s),num_states))
     pointers_back = np.zeros((len(s),num_states))
+    pointers_back_log = np.zeros((len(s),num_states))
     for i in range(num_states):
-        table[0][i] = hmm.initial_state[i]
+        table[0][i] = hmm.initial_state[i]*(1 if s[0]=='n' or s[0]=='N' else hmm.emission_prob[i][nuc_to_int(s[0])])
+        table_log[0][i] = np.log(hmm.initial_state[i]) + (0 if s[0]=='n' or s[0]=='N' else np.log(hmm.emission_prob[i][nuc_to_int(s[0])]) )
     for i in range(1,len(s)):
         for j in range(num_states):
             if s[i] == 'n' or s[i] == 'N':
@@ -121,23 +125,27 @@ def viterbi(s,hmm):
                 emit_prob = hmm.emission_prob[j][nuc_to_int(s[i])]
             if np.isclose(emit_prob,0):
                 table[i][j] = 0
+                table_log[i,j] = -np.inf
                 pointers_back[i][j] = np.argmax( np.multiply(table[i-1], hmm.transition_matrix[:,j].flatten()) )
+                pointers_back_log[i,j] = np.argmax( table_log[i-1] + log_transition[:,j].flatten() )
             else:
-                assert np.multiply(table[i-1],hmm.transition_matrix[:,j].reshape(num_states,1)).shape
                 table[i][j] = emit_prob * np.max( np.multiply(table[i-1],hmm.transition_matrix[:,j].flatten()) )
+                table_log[i,j] = np.log(emit_prob) + np.max( table_log[i-1] + log_transition[:,j].flatten() )
                 pointers_back[i][j] = np.argmax( np.multiply(table[i-1], hmm.transition_matrix[:,j].flatten()) )
+                pointers_back_log[i,j] = np.argmax( table_log[i-1] + log_transition[:,j].flatten() )
     print(pointers_back[0:5,:])
     print(pointers_back.shape)
+    print(table_log[54400:55400,:])
     hidden_seq = [-1 for i in range(len(s))]
     hidden_seq[len(s)-1] = np.argmax(table[len(s)-1])
-    prev_state = int(pointers_back[len(s)-1,hidden_seq[len(s)-1]])
+    prev_state = int(pointers_back_log[len(s)-1,hidden_seq[len(s)-1]])
     #print("prevstate",prev_state)
     for i in range(len(s)-2,0,-1):
         hidden_seq[i] = prev_state
-        prev_state = int(pointers_back[i,prev_state])
+        prev_state = int(pointers_back_log[i,prev_state])
         #print("prevstate",prev_state)
     hidden_seq[0] = prev_state
-    hidden_seq_filtered = [hidden_seq[i]/4 for i in range(len(hidden_seq))]
+    hidden_seq_filtered = [0 if hidden_seq[i]<=3 else 1 for i in range(len(hidden_seq))]
     return hidden_seq,hidden_seq_filtered
 
 def main():
@@ -157,6 +165,9 @@ def main():
     s22 = read_sequence("chr22.fa")
     print(len(s22))
     sry = s22[38000000:39000000]
+    f = open("sry_seq.txt","w")
+    f.write(sry)
+    f.close()
     state_list_22 = read_pos_regions("cpgIslandExt.txt",len(s22),"22")
     print(len(state_list_22))
     state_list_sry = state_list_22[38000000:39000000]
