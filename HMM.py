@@ -1,6 +1,7 @@
 import numpy as np
 from numpy import linalg
 import sklearn.metrics
+import matplotlib.pyplot as plt
 
 def read_pos_regions(filename,string_length,chrnum):
     f = open(filename,"r")
@@ -54,19 +55,22 @@ class HMM:
                     pass
                 else:
                     next_state = nuc_to_int(seq[i+1]) + (0 if state_list[i+1]==0 else 4)
-                    for j in range(4):
+                    positive_model = (0 if state_list[i]==0 else 4)
+                    for j in range(0+positive_model,4+positive_model):
                         self.transition_matrix[j][next_state]+=0.25
             else:
                 current_state = nuc_to_int(c) + (0 if state_list[i]==0 else 4)
-                if seq[i+1] == 'n' or seq[i+1] == 'N':            
-                    self.transition_matrix[current_state][0:4] += [0.25,0.25,0.25,0.25]
+                if seq[i+1] == 'n' or seq[i+1] == 'N':
+                    state = (0 if state_list[i+1]==0 else 4)
+                    self.transition_matrix[current_state][0+state:4+state] += [0.25,0.25,0.25,0.25]
                 else:
                     next_state = nuc_to_int(seq[i+1]) + (0 if state_list[i+1]==0 else 4)
                     self.transition_matrix[current_state][next_state] += 1
         print("pre-normalize: ",self.transition_matrix)
-        self.transition_matrix = self.transition_matrix / self.transition_matrix.sum(axis=1).reshape(8,1)
+        #self.transition_matrix = self.transition_matrix / self.transition_matrix.sum(axis=1).reshape(8,1)
+        self.transition_matrix = (self.transition_matrix + 10*np.ones((8,8)) )/ (self.transition_matrix.sum(axis=1).reshape(8,1) + 80*np.ones((8,8)) )
         steady_state = linalg.matrix_power(self.transition_matrix,10000)
-        print("steadstate: ",steady_state)
+        print("steadystate: ",steady_state)
         self.initial_state = steady_state[0]
         return self.transition_matrix,self.emission_prob,self.initial_state
     
@@ -112,8 +116,8 @@ def viterbi(s,hmm):
     num_states = hmm.transition_matrix.shape[0]
     table = np.zeros((len(s),num_states))
     table_log = np.zeros((len(s),num_states))
-    pointers_back = np.zeros((len(s),num_states))
-    pointers_back_log = np.zeros((len(s),num_states))
+    pointers_back = -5*np.ones((len(s),num_states))
+    pointers_back_log = -5*np.ones((len(s),num_states))
     for i in range(num_states):
         table[0][i] = hmm.initial_state[i]*(1 if s[0]=='n' or s[0]=='N' else hmm.emission_prob[i][nuc_to_int(s[0])])
         table_log[0][i] = np.log(hmm.initial_state[i]) + (0 if s[0]=='n' or s[0]=='N' else np.log(hmm.emission_prob[i][nuc_to_int(s[0])]) )
@@ -126,8 +130,8 @@ def viterbi(s,hmm):
             if np.isclose(emit_prob,0):
                 table[i][j] = 0
                 table_log[i,j] = -np.inf
-                pointers_back[i][j] = np.argmax( np.multiply(table[i-1], hmm.transition_matrix[:,j].flatten()) )
-                pointers_back_log[i,j] = np.argmax( table_log[i-1] + log_transition[:,j].flatten() )
+                #pointers_back[i][j] = np.argmax( np.multiply(table[i-1], hmm.transition_matrix[:,j].flatten()) )
+                #pointers_back_log[i,j] = np.argmax( table_log[i-1] + log_transition[:,j].flatten() )
             else:
                 table[i][j] = emit_prob * np.max( np.multiply(table[i-1],hmm.transition_matrix[:,j].flatten()) )
                 table_log[i,j] = np.log(emit_prob) + np.max( table_log[i-1] + log_transition[:,j].flatten() )
@@ -148,17 +152,24 @@ def viterbi(s,hmm):
     hidden_seq_filtered = [0 if hidden_seq[i]<=3 else 1 for i in range(len(hidden_seq))]
     return hidden_seq,hidden_seq_filtered
 
+def plot_regions(predicted,actual):
+    predicted = [i if predicted[i]==1 else None for i in range(len(predicted))]
+    actual = [i if actual[i]==1 else None for i in range(len(actual))]
+    plt.plot(predicted,[[1]]*len(predicted))
+    plt.plot(actual,[[0]]*len(actual))
+    plt.show()
+
 def main():
-    """
+    
     s = read_sequence("chr21.fa")
     print(len(s))
     state_list = read_pos_regions("cpgIslandExt.txt",len(s),"21")
     print(len(state_list))
-    """
+    
     hmm = HMM()
-    #transition_matrix,emission_prob,initial_state = hmm.train_HMM(s,state_list)
-    #hmm.save_params("HMM_params_21.txt")
-    hmm.load_params("HMM_params_21.txt")
+    transition_matrix,emission_prob,initial_state = hmm.train_HMM(s,state_list)
+    hmm.save_params("HMM_params_21_pseudocount.txt")
+    #hmm.load_params("HMM_params_21.txt")
     print(hmm.transition_matrix)
     print(hmm.emission_prob)
     print(hmm.initial_state)
@@ -179,5 +190,6 @@ def main():
     f2.write(str(state_list_sry))
     f2.close()
     print(sklearn.metrics.confusion_matrix(state_list_sry,predicted_cpg))
+    plot_regions(predicted_cpg,state_list_sry)
 
 main()
